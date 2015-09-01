@@ -195,6 +195,7 @@ def new_trainer(pars, data):
         data=data,
         stop=climin.stops.Any([
                                 climin.stops.TimeElapsed(pars['minutes'] * 60),
+                                climin.stops.IsNaN(keys=['train_loss', 'val_loss'])
                                 ]),
         pause=climin.stops.ModuloNIterations(n_report),
         report=OneLinePrinter(['n_iter', 'time', 'train_loss', 'val_loss'],spaces=[6,'10.2f','15.8f','15.8f']),
