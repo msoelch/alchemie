@@ -97,6 +97,8 @@ def make_trainer(pars, mod, data):
             # trainer.interrupted might have been manually set to True from outside,
             # make sure it is back to default when restarting
             trainer.interrupted = False
+
+            trainer.interruptions.append(time.time()-trainer.last_interruption)
     else:
         print '>>> creating new trainer'
         trainer = mod.new_trainer(pars, data)
@@ -136,6 +138,8 @@ def run(args, mod):
     last_pars = trainer.switch_to_best_pars()
     report = mod.make_report(pars, trainer, data)
     trainer.switch_to_pars(last_pars)
+
+    trainer.last_interruption = time.time()
 
     print '>>> saving to checkpoint'
     idx = contrib.to_checkpoint('.', trainer)
