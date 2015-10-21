@@ -4,14 +4,18 @@
 import cPickle
 import glob
 import gzip
-import os.path
+import importlib
+import os
 import re
+import sys
+import warnings
 
 from cPickle import PickleError
-from os import remove
+from shutil import copyfile
+from subprocess import check_output, CalledProcessError, call
 
-from subprocess import Popen, PIPE
-import importlib
+from theano.configparser import config_files_from_theanorc
+
 
 checkpoint_file_re = re.compile("checkpoint-(\d+).pkl.gz")
 
@@ -93,33 +97,123 @@ def to_checkpoint(dirname, trainer):
         # there is something to be removed and it can be removed because
         # something newer is available
         if rm and dumped:
-            remove(os.path.join(dirname, cp))
+            os.remove(os.path.join(dirname, cp))
 
     return next_cp_idx
 
 
-def git_log(modules):
-    prev_path = os.getcwd()
-    gitlog = ''
-    for m in modules:
-        mod = importlib.import_module(m)
-        path = os.path.dirname(mod.__file__)
-        os.chdir(path)
-        if hasattr(mod,'__version__'):
-            info = mod.__version__
+def copy_theanorc(path=None):
+    """Static method copying the theanorc into a wanted path. Defaults to the
+    current working directory
+
+    Parameters
+    ----------
+
+    path : string or list of strings
+        String or list of strings (for OS independence) holding the path that
+        the theanorc should be copied to.
+    """
+    dest = path if path else os.getcwd()
+    config_base_path = os.path.join(dest, 'theanorcs')
+
+    for cf_source in config_files_from_theanorc():
+        cf_source = os.path.abspath(cf_source)
+        if sys.platform == 'windows':
+            # Turn sth like 'C:\' into 'C\'
+            cf_sink = cf_source.replace(':', '')
         else:
-            gitproc = Popen(['git', 'diff-index', 'HEAD'], stdout=PIPE)
-            (stdout, _) = gitproc.communicate()
-            info = stdout.strip()
-            if not info == '':
-                info = 'WARNING: unsynced changes in module %s\n' % m + info +'\n\n'
+            # Get rid of the first slah.
+            cf_sink = cf_source[1:]
+        cf_sink = os.path.join(config_base_path, cf_sink)
 
-            gitproc = Popen(['git', 'log','-1'], stdout=PIPE)
-            (stdout, _) = gitproc.communicate()
-            info += stdout.strip()
+        print 'Copying theano configuration file from {} to {}'.format(
+            cf_source, cf_sink)
+
+        sink_base = os.path.split(cf_sink)[0]
+        if not os.path.isdir(sink_base):
+            os.makedirs(sink_base)
+
+        copyfile(cf_source, cf_sink)
 
 
-        gitlog += '%s\n-----\n%s'%(m,info)+'\n\n'
+def git_log(modules, path=None):
+    """Given a list of module names, it prints out the version (if
+    available), and, if git is available, potential uncommitted changes as
+    well as the latest commit and the current branch.
+
+    Parameters
+    ----------
+
+    module : list
+        List of strings of module names. Note: It will not be checked whether
+        such a module exists.
+
+    path : string or list of strings
+        String or list of strings (for OS independence) holding the path that
+        the theanorc should be copied to.
+
+    Returns
+    -------
+
+    gitlog : string
+        Nicely formatted string holding the information about the packages.
+    """
+
+    gitlog = ''
+
+    # check if git works.
+    try:
+        check_output(["git", "--version"])
+        git = True
+    except CalledProcessError:
+        message = "'git --version' failed. Probably no git available."
+        warnings.warn(message)
+        gitlog += message
+        git = False
+
+    prev_path = os.getcwd()
+
+    for m in modules:
+        # add some new lines after last module
+        if gitlog:
+            gitlog += '\n\n\n\n'
+
+        modinfo = '%s\n-----\n' % m
+        mod = importlib.import_module(m)
+        modpath = os.path.dirname(mod.__file__)
+        os.chdir(modpath)
+
+        if hasattr(mod, '__version__'):
+            modinfo += 'Version:\n' + mod.__version__ + '\n\n'
+
+        # return code zero of call indicates that we have a git repository
+        is_repo = not bool(call(['git', 'rev-parse', '--is-inside-work-tree'],
+                           stdout=open(os.devnull, 'w'),
+                           stderr=open(os.devnull, 'w')))
+
+        if git and is_repo:
+            uncommitted = check_output(['git', 'diff-index', 'HEAD'])
+            if uncommitted:
+                # delete some unnecessary output
+                files = ''
+                for line in uncommitted[:-1].split('\n'):
+                    f = line.split('\t')[1]
+                    files += f + '\n'
+                modinfo += 'WARNING: uncommitted changes in module %s\n\n' \
+                           'The following files have uncommitted changes:\n' \
+                           '%s\n' % (m, files)
+
+            modinfo += 'Latest commit:\n%s\n' % check_output(
+                ['git', 'log', '-1'])
+            modinfo += 'Current branch:\n%s' % check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"]).split('\n')[0]
+
+        gitlog += modinfo
 
     os.chdir(prev_path)
+
+    dest = path if path else os.getcwd()
+    with open(os.path.join(dest, 'gitlog.txt'), 'w') as result:
+        result.write(gitlog)
+
     return gitlog
