@@ -67,14 +67,14 @@ def run(args, setup):
 
     trainer.fit()
 
+    print '>>> saving to checkpoint'
+    idx = contrib.to_checkpoint('.', trainer)
+
     print '>>> making report'
     last_pars = trainer.switch_pars(trainer.best_pars)
 
     report = setup.make_report(pars, trainer, data)
     trainer.switch_pars(last_pars)
-
-    print '>>> saving to checkpoint'
-    idx = contrib.to_checkpoint('.', trainer)
 
     fn = 'report-last.json' if trainer.stopped else 'report-%i.json' % idx
     with open(fn, 'w') as fp:
