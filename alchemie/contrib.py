@@ -116,11 +116,20 @@ def copy_theanorc(path=None):
     dest = path if path else os.getcwd()
     config_base_path = os.path.join(dest, 'theanorcs')
 
-    for cf_source in config_files_from_theanorc():
+    theanorc_paths = config_files_from_theanorc()
+
+    if isinstance(theanorc_paths, basestring):
+        theanorc_paths = [theanorc_paths]
+
+    for cf_source in theanorc_paths:
         cf_source = os.path.abspath(cf_source)
-        if sys.platform == 'windows':
-            # Turn sth like 'C:\' into 'C\'
-            cf_sink = cf_source.replace(':', '')
+        if sys.platform == 'win32':
+           # handle network adresses
+            if cf_source.startswith('\\'):
+                cf_sink = cf_source[2:]
+            else:
+                # Turn sth like 'C:\' into 'C\'
+                cf_sink = cf_source.replace(':', '')
         else:
             # Get rid of the first slah.
             cf_sink = cf_source[1:]
